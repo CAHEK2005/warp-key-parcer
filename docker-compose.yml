@@ -1,0 +1,62 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: warp
+      POSTGRES_USER: warp
+      POSTGRES_PASSWORD: warp
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U warp -d warp"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+
+  backend:
+    build:
+      context: ./backend
+    env_file: ${WARP_ENV_FILE:-.env.example}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+
+  worker:
+    build:
+      context: ./backend
+    command: ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=INFO"]
+    env_file: ${WARP_ENV_FILE:-.env.example}
+    depends_on:
+      - backend
+      - redis
+
+  scheduler:
+    build:
+      context: ./backend
+    command: ["python", "-m", "app.scheduler"]
+    env_file: ${WARP_ENV_FILE:-.env.example}
+    depends_on:
+      - backend
+      - redis
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres-data:
+  redis-data:
