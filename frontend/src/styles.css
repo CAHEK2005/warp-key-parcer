@@ -414,3 +414,204 @@ h2 {
     margin-left: 0;
   }
 }
+
+.loginShell {
+  display: grid;
+  min-height: 100vh;
+  place-items: center;
+  padding: 24px;
+}
+
+.loginPanel {
+  width: min(460px, 100%);
+  padding: 28px;
+  background: rgba(26, 29, 23, 0.98);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.actionCluster {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.adminBadge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 10px;
+  color: var(--yellow);
+  background: #151811;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font-weight: 800;
+}
+
+.ghostButton.compact {
+  height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
+.iconButton.danger:hover {
+  color: #ffd7d2;
+  border-color: rgba(238, 107, 95, 0.55);
+}
+
+.errorBanner,
+.errorText {
+  color: #ffd7d2;
+  background: rgba(238, 107, 95, 0.15);
+  border: 1px solid rgba(238, 107, 95, 0.5);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+
+.panel.full {
+  min-height: 520px;
+}
+
+.dataTable {
+  display: grid;
+  gap: 8px;
+}
+
+.dataRow {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(130px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 58px;
+  padding: 11px 12px;
+  background: var(--panel-2);
+  border: 1px solid #2e342a;
+  border-radius: 8px;
+}
+
+.dataRow span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dataRow code {
+  min-width: 0;
+  padding: 5px 7px;
+  color: #f7f0d8;
+  background: #11140f;
+  border: 1px solid #33372e;
+  border-radius: 6px;
+  overflow-wrap: anywhere;
+}
+
+.emptyState {
+  display: grid;
+  min-height: 96px;
+  place-items: center;
+  padding: 16px;
+  color: var(--muted);
+  background: rgba(32, 37, 30, 0.7);
+  border: 1px dashed #3e4539;
+  border-radius: 8px;
+  text-align: center;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(8, 9, 7, 0.78);
+  backdrop-filter: blur(6px);
+}
+
+.modal {
+  width: min(760px, 100%);
+  max-height: min(820px, 92vh);
+  overflow: auto;
+  padding: 18px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: 0 22px 80px rgba(0, 0, 0, 0.45);
+}
+
+.formStack,
+.formGrid {
+  display: grid;
+  gap: 14px;
+}
+
+.formGrid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.formStack label,
+.formGrid label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.formGrid .wide,
+.formActions.wide {
+  grid-column: 1 / -1;
+}
+
+input,
+select,
+textarea {
+  width: 100%;
+  color: var(--text);
+  background: #10130f;
+  border: 1px solid #3a4135;
+  border-radius: 8px;
+  padding: 11px 12px;
+  outline: none;
+}
+
+textarea {
+  resize: vertical;
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--yellow);
+  box-shadow: 0 0 0 3px rgba(230, 196, 93, 0.14);
+}
+
+.formActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@media (max-width: 960px) {
+  .dataRow {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .dataRow > span,
+  .dataRow > code {
+    grid-column: 2 / -1;
+  }
+}
+
+@media (max-width: 640px) {
+  .dataRow {
+    display: flex;
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .formGrid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -221,6 +221,14 @@ def create_app(
     def list_hosts(_: AdminUser = AuthDep, session: Session = Depends(get_session)) -> list[HostResponse]:
         return [_as_host_response(item) for item in session.scalars(select(Host).order_by(Host.name)).all()]
 
+    @app.delete("/hosts/{host_id}", status_code=204)
+    def delete_host(host_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> None:
+        item = session.get(Host, host_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="host not found")
+        session.delete(item)
+        session.commit()
+
     @app.post("/hosts/{host_id}/test-connection")
     def test_host_connection(host_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> dict[str, str]:
         host = session.get(Host, host_id)
@@ -261,7 +269,21 @@ def create_app(
     def sync_telegram_source(source_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> dict[str, str | int]:
         if session.get(TelegramSource, source_id) is None:
             raise HTTPException(status_code=404, detail="telegram source not found")
+        try:
+            from app.tasks import parse_telegram_source
+
+            parse_telegram_source.delay(source_id)
+        except Exception:
+            pass
         return {"status": "queued", "source_id": source_id}
+
+    @app.delete("/telegram-sources/{source_id}", status_code=204)
+    def delete_telegram_source(source_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> None:
+        item = session.get(TelegramSource, source_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="telegram source not found")
+        session.delete(item)
+        session.commit()
 
     @app.post("/warp-keys", response_model=WarpKeyResponse, status_code=201)
     def create_warp_key(payload: WarpKeyCreate, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> WarpKeyResponse:
@@ -316,6 +338,14 @@ def create_app(
     def reactivate_warp_key(warp_key_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> WarpKeyResponse:
         return set_warp_key_status(warp_key_id, KeyStatus.valid, session)
 
+    @app.delete("/warp-keys/{warp_key_id}", status_code=204)
+    def delete_warp_key(warp_key_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> None:
+        item = session.get(WarpKey, warp_key_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="warp key not found")
+        session.delete(item)
+        session.commit()
+
     @app.post("/schedules", response_model=ScheduleResponse, status_code=201)
     def create_schedule(payload: ScheduleCreate, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> ScheduleResponse:
         if session.get(Host, payload.host_id) is None:
@@ -347,6 +377,14 @@ def create_app(
     def list_schedules(_: AdminUser = AuthDep, session: Session = Depends(get_session)) -> list[ScheduleResponse]:
         return [_as_schedule_response(item) for item in session.scalars(select(HostSchedule).order_by(HostSchedule.id.desc())).all()]
 
+    @app.delete("/schedules/{schedule_id}", status_code=204)
+    def delete_schedule(schedule_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> None:
+        item = session.get(HostSchedule, schedule_id)
+        if item is None:
+            raise HTTPException(status_code=404, detail="schedule not found")
+        session.delete(item)
+        session.commit()
+
     @app.post("/jobs/hosts/{host_id}/run", response_model=JobRunResponse, status_code=202)
     def trigger_host_run(host_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> JobRunResponse:
         if session.get(Host, host_id) is None:
@@ -355,6 +393,12 @@ def create_app(
         session.add(item)
         session.commit()
         session.refresh(item)
+        try:
+            from app.tasks import apply_warp_key
+
+            apply_warp_key.delay(item.id)
+        except Exception:
+            pass
         return _as_job_response(item)
 
     @app.get("/jobs", response_model=list[JobRunResponse])

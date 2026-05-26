@@ -16,5 +16,8 @@ export async function apiFetch<T>(path: string, options: RequestInit & ApiOption
   if (!response.ok) {
     throw new Error(`API ${response.status}: ${await response.text()}`);
   }
+  if (response.status === 204) {
+    return undefined as T;
+  }
   return response.json() as Promise<T>;
 }
