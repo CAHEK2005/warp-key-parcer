@@ -1,6 +1,9 @@
 from fastapi.testclient import TestClient
 
-from app.main import create_app
+from app.db import init_db, make_session_factory
+from app.main import _create_default_admin, create_app
+from app.models import AdminUser
+from app.security import verify_password
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -17,6 +20,20 @@ def test_auth_current_user() -> None:
 
     assert response.status_code == 200
     assert response.json()["username"] == "admin"
+
+
+def test_admin_bootstrap_updates_existing_password_from_environment() -> None:
+    session_factory = make_session_factory("sqlite:///:memory:")
+    init_db(session_factory)
+
+    _create_default_admin(session_factory, "admin", "old-password")
+    _create_default_admin(session_factory, "admin", "new-password")
+
+    with session_factory() as session:
+        admin = session.query(AdminUser).filter_by(username="admin").one()
+
+    assert verify_password("new-password", admin.password_hash)
+    assert not verify_password("old-password", admin.password_hash)
 
 
 def test_secret_lifecycle_masks_and_reveals_ssh_key() -> None:

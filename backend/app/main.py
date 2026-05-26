@@ -115,6 +115,10 @@ def _create_default_admin(session_factory: sessionmaker[Session], username: str,
         if existing is None:
             session.add(AdminUser(username=username, password_hash=hash_password(password)))
             session.commit()
+            return
+        if not verify_password(password, existing.password_hash):
+            existing.password_hash = hash_password(password)
+            session.commit()
 
 
 def create_app(
