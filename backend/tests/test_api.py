@@ -69,3 +69,45 @@ def test_manual_job_trigger_creates_pending_job() -> None:
     assert response.status_code == 202
     assert response.json()["status"] == "pending"
     assert response.json()["trigger"] == "manual"
+
+
+def test_full_operator_crud_flow() -> None:
+    client = TestClient(create_app(database_url="sqlite:///:memory:", secret_key="test-secret"))
+    headers = auth_headers(client)
+
+    ssh_key = client.post("/ssh-keys", headers=headers, json={"name": "ops", "private_key": "private"}).json()
+    host = client.post(
+        "/hosts",
+        headers=headers,
+        json={"name": "edge-prod", "address": "10.0.0.10", "ssh_username": "root", "ssh_key_id": ssh_key["id"]},
+    ).json()
+    source = client.post(
+        "/telegram-sources",
+        headers=headers,
+        json={
+            "name": "owned",
+            "access_mode": "bot",
+            "channel_ref": "@owned",
+            "regex": r"\bKEY-\d+\b",
+            "secret": "bot-token",
+        },
+    ).json()
+    warp_key = client.post("/warp-keys", headers=headers, json={"value": "KEY-42", "source_id": source["id"]}).json()
+    schedule = client.post(
+        "/schedules",
+        headers=headers,
+        json={"host_id": host["id"], "kind": "interval", "interval_seconds": 3600, "timezone": "Europe/Moscow"},
+    ).json()
+
+    assert client.get("/hosts", headers=headers).json()[0]["name"] == "edge-prod"
+    assert client.get("/telegram-sources", headers=headers).json()[0]["name"] == "owned"
+    assert client.get("/warp-keys", headers=headers).json()[0]["tail"] == "Y-42"
+    assert client.get("/schedules", headers=headers).json()[0]["id"] == schedule["id"]
+
+    invalidated = client.post(f"/warp-keys/{warp_key['id']}/invalidate", headers=headers)
+    assert invalidated.status_code == 200
+    assert invalidated.json()["status"] == "invalid"
+
+    deleted = client.delete(f"/hosts/{host['id']}", headers=headers)
+    assert deleted.status_code == 204
+    assert client.get("/hosts", headers=headers).json() == []
