@@ -34,9 +34,22 @@ type Host = {
   address: string;
   ssh_username: string;
   ssh_port: number;
+  auth_mode: "key" | "password";
   ssh_key_id: number | null;
+  has_password: boolean;
   ready: boolean;
   last_ready_at: string | null;
+};
+
+type WarpStatus = {
+  status: string;
+  account_present?: boolean;
+  valid?: boolean;
+  license_tail?: string;
+  current_license_tail?: string;
+  traffic_available?: boolean;
+  traffic_remaining?: string | number | null;
+  reason?: string;
 };
 
 type TelegramSource = {
@@ -119,6 +132,7 @@ export function App() {
   const [data, setData] = useState<DataState>(emptyData);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
   const [modal, setModal] = useState<"" | "host" | "ssh" | "telegram" | "warp" | "schedule">("");
   const [revealed, setRevealed] = useState<Record<number, string>>({});
 
@@ -230,6 +244,15 @@ export function App() {
     });
   }
 
+  async function checkWarpStatus(host: Host) {
+    await runAction(async () => {
+      const response = await api<WarpStatus>(`/hosts/${host.id}/warp-status`, { method: "POST" });
+      const tail = response.license_tail || response.current_license_tail || "none";
+      const traffic = response.traffic_available ? String(response.traffic_remaining ?? "unknown") : "not returned by wgcf";
+      setNotice(`${host.name}: account ${response.account_present ? "found" : "missing"}, license ${response.valid ? "valid" : "not validated"}, tail ${tail}, traffic ${traffic}. ${response.reason || ""}`);
+    });
+  }
+
   async function syncSource(source: TelegramSource) {
     await runAction(async () => {
       await api(`/telegram-sources/${source.id}/sync`, { method: "POST" });
@@ -239,6 +262,7 @@ export function App() {
 
   async function runAction(action: () => Promise<void>) {
     setError("");
+    setNotice("");
     try {
       await action();
     } catch (err) {
@@ -310,6 +334,7 @@ export function App() {
           </div>
         </header>
         {error ? <p className="errorBanner">{error}</p> : null}
+        {notice ? <p className="noticeBanner">{notice}</p> : null}
 
         <section className="metricGrid" aria-label="System metrics">
           <Metric icon={<Server />} label="Hosts ready" value={`${stats.readyHosts}/${data.hosts.length}`} accent="green" />
@@ -322,7 +347,7 @@ export function App() {
           <Overview data={data} revealed={revealed} onReveal={revealWarpKey} onRun={triggerHost} onSync={syncSource} setModal={setModal} />
         ) : null}
         {active === "hosts" ? (
-          <HostsView hosts={data.hosts} sshKeys={data.sshKeys} onRun={triggerHost} onDelete={(host) => remove(`/hosts/${host.id}`)} onAdd={() => setModal("host")} />
+          <HostsView hosts={data.hosts} sshKeys={data.sshKeys} onRun={triggerHost} onCheckStatus={checkWarpStatus} onDelete={(host) => remove(`/hosts/${host.id}`)} onAdd={() => setModal("host")} />
         ) : null}
         {active === "ssh" ? <SshView sshKeys={data.sshKeys} onAdd={() => setModal("ssh")} onDelete={(key) => remove(`/ssh-keys/${key.id}`)} /> : null}
         {active === "telegram" ? (
@@ -390,12 +415,14 @@ function HostsView({
   hosts,
   sshKeys,
   onRun,
+  onCheckStatus,
   onDelete,
   onAdd,
 }: {
   hosts: Host[];
   sshKeys: SshKey[];
   onRun: (host: Host) => void;
+  onCheckStatus: (host: Host) => void;
   onDelete: (host: Host) => void;
   onAdd: () => void;
 }) {
@@ -408,8 +435,9 @@ function HostsView({
             <span className="statusDot" data-ready={host.ready} />
             <strong>{host.name}</strong>
             <span>{host.ssh_username}@{host.address}:{host.ssh_port}</span>
-            <span>{sshKeys.find((key) => key.id === host.ssh_key_id)?.name || "no ssh key"}</span>
+            <span>{host.auth_mode === "password" ? "password auth" : (sshKeys.find((key) => key.id === host.ssh_key_id)?.name || "no ssh key")}</span>
             <span className={host.ready ? "pill good" : "pill warn"}>{host.ready ? "ready" : "pending"}</span>
+            <button className="iconButton" onClick={() => onCheckStatus(host)} aria-label={`Check WARP status ${host.name}`}><Activity size={16} /></button>
             <button className="iconButton" onClick={() => onRun(host)} aria-label={`Run ${host.name}`}><Play size={16} /></button>
             <button className="iconButton danger" onClick={() => onDelete(host)} aria-label={`Delete ${host.name}`}><Trash2 size={16} /></button>
           </div>
@@ -671,12 +699,20 @@ function HostModal({ sshKeys, onClose, onSubmit }: { sshKeys: SshKey[]; onClose:
         <Field label="SSH username" name="ssh_username" defaultValue="root" required />
         <Field label="SSH port" name="ssh_port" defaultValue="22" type="number" required />
         <label>
+          Auth mode
+          <select name="auth_mode" defaultValue="key">
+            <option value="key">Private key</option>
+            <option value="password">Password</option>
+          </select>
+        </label>
+        <label>
           SSH key
           <select name="ssh_key_id" defaultValue={sshKeys[0]?.id || ""}>
             <option value="">None</option>
             {sshKeys.map((key) => <option key={key.id} value={key.id}>{key.name}</option>)}
           </select>
         </label>
+        <Field label="SSH password" name="ssh_password" type="password" autoComplete="new-password" />
         <SubmitRow onClose={onClose} submitLabel="Save host" />
       </form>
     </Modal>
@@ -807,12 +843,15 @@ function handleSubmit(event: FormEvent<HTMLFormElement>, onSubmit: (payload: unk
 }
 
 function hostPayload(form: FormData) {
+  const authMode = stringValue(form, "auth_mode") || "key";
   return {
     name: stringValue(form, "name"),
     address: stringValue(form, "address"),
     ssh_username: stringValue(form, "ssh_username"),
     ssh_port: numberValue(form, "ssh_port") || 22,
-    ssh_key_id: nullableNumber(form, "ssh_key_id"),
+    auth_mode: authMode,
+    ssh_key_id: authMode === "key" ? nullableNumber(form, "ssh_key_id") : null,
+    ssh_password: authMode === "password" ? nullableString(form, "ssh_password") : null,
   };
 }
 

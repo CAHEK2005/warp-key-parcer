@@ -6,7 +6,7 @@ import { App } from "./App";
 
 const fixtures = {
   hosts: [
-    { id: 1, name: "edge-prod", address: "10.0.0.10", ssh_username: "root", ssh_port: 22, ssh_key_id: 1, ready: false, last_ready_at: null },
+    { id: 1, name: "edge-prod", address: "10.0.0.10", ssh_username: "root", ssh_port: 22, auth_mode: "key", ssh_key_id: 1, has_password: false, ready: false, last_ready_at: null },
   ],
   sshKeys: [{ id: 1, name: "ops", fingerprint: "sha256:abc:tail", tail: "tail", private_key: null }],
   telegramSources: [
@@ -38,6 +38,7 @@ function mockApi() {
       if (url.endsWith("/jobs")) return Response.json(fixtures.jobs);
       if (url.includes("/reveal")) return Response.json({ ...fixtures.warpKeys[0], value: "KEY-42" });
       if (url.includes("/run")) return Response.json({ ...fixtures.jobs[0], id: 2 }, { status: 202 });
+      if (url.includes("/warp-status")) return Response.json({ status: "account_status", account_present: true, valid: true, license_tail: "abcd", traffic_available: false, reason: "ok" });
       return Response.json({ status: "ok" });
     }),
   );
@@ -102,6 +103,32 @@ describe("App", () => {
 
     await waitFor(() => {
       expect(calls.some((call) => call.url.endsWith("/hosts") && call.init?.method === "POST")).toBe(true);
+    });
+  });
+
+  it("submits password-auth hosts when selected", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "admin");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect((await screen.findAllByText("edge-prod")).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Hosts" }));
+    await user.click(screen.getByRole("button", { name: "Add host" }));
+    await user.type(screen.getByLabelText("Host name"), "edge-pass");
+    await user.type(screen.getByLabelText("Address"), "10.0.0.12");
+    await user.selectOptions(screen.getByLabelText("Auth mode"), "password");
+    await user.type(screen.getByLabelText("SSH password"), "secret");
+    await user.click(screen.getByRole("button", { name: "Save host" }));
+
+    const createCall = calls.find((call) => call.url.endsWith("/hosts") && call.init?.method === "POST");
+    expect(JSON.parse(String(createCall?.init?.body))).toMatchObject({
+      auth_mode: "password",
+      ssh_key_id: null,
+      ssh_password: "secret",
     });
   });
 

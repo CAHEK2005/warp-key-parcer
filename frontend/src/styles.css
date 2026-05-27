@@ -462,12 +462,19 @@ h2 {
 }
 
 .errorBanner,
+.noticeBanner,
 .errorText {
   color: #ffd7d2;
   background: rgba(238, 107, 95, 0.15);
   border: 1px solid rgba(238, 107, 95, 0.5);
   border-radius: 8px;
   padding: 10px 12px;
+}
+
+.noticeBanner {
+  color: #d7ffe0;
+  background: rgba(102, 210, 135, 0.14);
+  border-color: rgba(102, 210, 135, 0.45);
 }
 
 .panel.full {
@@ -481,7 +488,7 @@ h2 {
 
 .dataRow {
   display: grid;
-  grid-template-columns: auto minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(130px, 1fr) auto auto auto;
+  grid-template-columns: auto minmax(120px, 0.9fr) minmax(180px, 1.4fr) minmax(130px, 1fr) auto auto auto auto;
   align-items: center;
   gap: 12px;
   min-height: 58px;

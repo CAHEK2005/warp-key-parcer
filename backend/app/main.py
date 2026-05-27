@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from datetime import datetime, timezone
+from typing import Any
 
 from fastapi import Depends, FastAPI, Header, HTTPException, status
 from sqlalchemy import select
@@ -13,6 +14,7 @@ from app.domain.schedules import ScheduleValidationError, validate_schedule
 from app.models import (
     AdminUser,
     Host,
+    HostAuthMode,
     HostSchedule,
     JobRun,
     JobStatus,
@@ -53,10 +55,26 @@ def _as_host_response(item: Host) -> HostResponse:
         address=item.address,
         ssh_username=item.ssh_username,
         ssh_port=item.ssh_port,
+        auth_mode=item.auth_mode or HostAuthMode.key,
         ssh_key_id=item.ssh_key_id,
+        has_password=bool(item.encrypted_password),
         ready=item.ready,
         last_ready_at=item.last_ready_at,
     )
+
+
+def _resolve_host_auth(host: Host, session: Session, secret_key: str) -> tuple[str | None, str | None]:
+    if (host.auth_mode or HostAuthMode.key) == HostAuthMode.password:
+        password = decrypt_secret(secret_key, host.encrypted_password)
+        if not password:
+            raise HTTPException(status_code=400, detail="host has no ssh password")
+        return None, password
+    if host.ssh_key_id is None:
+        raise HTTPException(status_code=400, detail="host has no ssh key")
+    ssh_key = session.get(SshKey, host.ssh_key_id)
+    if ssh_key is None:
+        raise HTTPException(status_code=400, detail="ssh key missing")
+    return decrypt_secret(secret_key, ssh_key.encrypted_private_key) or "", None
 
 
 def _as_telegram_source_response(item: TelegramSource) -> TelegramSourceResponse:
@@ -212,9 +230,25 @@ def create_app(
 
     @app.post("/hosts", response_model=HostResponse, status_code=201)
     def create_host(payload: HostCreate, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> HostResponse:
-        if payload.ssh_key_id is not None and session.get(SshKey, payload.ssh_key_id) is None:
-            raise HTTPException(status_code=400, detail="ssh key not found")
-        item = Host(**payload.model_dump())
+        if payload.auth_mode == HostAuthMode.key:
+            if payload.ssh_key_id is None:
+                raise HTTPException(status_code=400, detail="ssh key is required for key auth")
+            if session.get(SshKey, payload.ssh_key_id) is None:
+                raise HTTPException(status_code=400, detail="ssh key not found")
+            encrypted_password = None
+        else:
+            if not payload.ssh_password:
+                raise HTTPException(status_code=400, detail="ssh password is required for password auth")
+            encrypted_password = encrypt_secret(active_secret_key, payload.ssh_password)
+        item = Host(
+            name=payload.name,
+            address=payload.address,
+            ssh_username=payload.ssh_username,
+            ssh_port=payload.ssh_port,
+            auth_mode=payload.auth_mode,
+            ssh_key_id=payload.ssh_key_id if payload.auth_mode == HostAuthMode.key else None,
+            encrypted_password=encrypted_password,
+        )
         session.add(item)
         try:
             session.commit()
@@ -245,9 +279,26 @@ def create_app(
         host = session.get(Host, host_id)
         if host is None:
             raise HTTPException(status_code=404, detail="host not found")
-        if host.ssh_key_id is None:
-            raise HTTPException(status_code=400, detail="host has no ssh key")
-        return {"status": "configured", "host": host.name}
+        _resolve_host_auth(host, session, active_secret_key)
+        return {"status": "configured", "host": host.name, "auth_mode": (host.auth_mode or HostAuthMode.key).value}
+
+    @app.post("/hosts/{host_id}/warp-status")
+    def check_host_warp_status(host_id: int, _: AdminUser = AuthDep, session: Session = Depends(get_session)) -> dict[str, Any]:
+        host = session.get(Host, host_id)
+        if host is None:
+            raise HTTPException(status_code=404, detail="host not found")
+        private_key, password = _resolve_host_auth(host, session, active_secret_key)
+        try:
+            from app.remote.ansible_runner import run_warp_status
+
+            return run_warp_status(
+                host,
+                settings.ansible_private_data_dir,
+                private_key=private_key,
+                password=password,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=503, detail=f"remote status check failed: {exc}") from exc
 
     @app.post("/telegram-sources", response_model=TelegramSourceResponse, status_code=201)
     def create_telegram_source(

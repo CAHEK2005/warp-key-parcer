@@ -38,6 +38,11 @@ class ScheduleKind(str, enum.Enum):
     interval = "interval"
 
 
+class HostAuthMode(str, enum.Enum):
+    key = "key"
+    password = "password"
+
+
 class AdminUser(Base):
     __tablename__ = "admin_users"
 
@@ -97,7 +102,9 @@ class Host(Base):
     address: Mapped[str] = mapped_column(String(255))
     ssh_username: Mapped[str] = mapped_column(String(120), default="root")
     ssh_port: Mapped[int] = mapped_column(Integer, default=22)
+    auth_mode: Mapped[HostAuthMode] = mapped_column(Enum(HostAuthMode), default=HostAuthMode.key)
     ssh_key_id: Mapped[int | None] = mapped_column(ForeignKey("ssh_keys.id"), nullable=True)
+    encrypted_password: Mapped[str | None] = mapped_column(Text, nullable=True)
     ready: Mapped[bool] = mapped_column(Boolean, default=False)
     last_ready_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

@@ -1,6 +1,7 @@
 from collections.abc import Generator
 
 from sqlalchemy import create_engine
+from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -20,7 +21,21 @@ def make_session_factory(database_url: str) -> sessionmaker[Session]:
 
 
 def init_db(session_factory: sessionmaker[Session]) -> None:
-    Base.metadata.create_all(bind=session_factory.kw["bind"])
+    engine = session_factory.kw["bind"]
+    Base.metadata.create_all(bind=engine)
+    ensure_schema(engine)
+
+
+def ensure_schema(engine) -> None:
+    inspector = inspect(engine)
+    if "hosts" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("hosts")}
+    with engine.begin() as connection:
+        if "auth_mode" not in columns:
+            connection.execute(text("ALTER TABLE hosts ADD COLUMN auth_mode VARCHAR(20) NOT NULL DEFAULT 'key'"))
+        if "encrypted_password" not in columns:
+            connection.execute(text("ALTER TABLE hosts ADD COLUMN encrypted_password TEXT"))
 
 
 def session_dependency(session_factory: sessionmaker[Session]):

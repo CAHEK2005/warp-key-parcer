@@ -2,7 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
-from app.models import JobStatus, KeyStatus, ScheduleKind, TelegramAccessMode
+from app.models import HostAuthMode, JobStatus, KeyStatus, ScheduleKind, TelegramAccessMode
 
 
 class LoginRequest(BaseModel):
@@ -38,7 +38,9 @@ class HostCreate(BaseModel):
     address: str
     ssh_username: str = "root"
     ssh_port: int = 22
+    auth_mode: HostAuthMode = HostAuthMode.key
     ssh_key_id: int | None = None
+    ssh_password: str | None = None
 
 
 class HostResponse(BaseModel):
@@ -47,7 +49,9 @@ class HostResponse(BaseModel):
     address: str
     ssh_username: str
     ssh_port: int
+    auth_mode: HostAuthMode
     ssh_key_id: int | None
+    has_password: bool
     ready: bool
     last_ready_at: datetime | None
 
