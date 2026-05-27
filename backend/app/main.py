@@ -277,8 +277,8 @@ def create_app(
             from app.tasks import parse_telegram_source
 
             parse_telegram_source.delay(source_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise HTTPException(status_code=503, detail="worker queue unavailable") from exc
         return {"status": "queued", "source_id": source_id}
 
     @app.delete("/telegram-sources/{source_id}", status_code=204)
@@ -401,8 +401,12 @@ def create_app(
             from app.tasks import apply_warp_key
 
             apply_warp_key.delay(item.id)
-        except Exception:
-            pass
+        except Exception as exc:
+            item.status = JobStatus.failed
+            item.summary = "failed to enqueue worker task"
+            item.finished_at = datetime.now(timezone.utc)
+            session.commit()
+            raise HTTPException(status_code=503, detail="worker queue unavailable") from exc
         return _as_job_response(item)
 
     @app.get("/jobs", response_model=list[JobRunResponse])

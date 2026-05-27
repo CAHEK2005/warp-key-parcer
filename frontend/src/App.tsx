@@ -187,32 +187,52 @@ export function App() {
   }
 
   async function submit(path: string, payload: unknown) {
-    await api(path, { method: "POST", body: JSON.stringify(payload) });
-    setModal("");
-    await loadAll();
+    await runAction(async () => {
+      await api(path, { method: "POST", body: JSON.stringify(payload) });
+      setModal("");
+      await loadAll();
+    });
   }
 
   async function remove(path: string) {
-    await api(path, { method: "DELETE" });
-    await loadAll();
+    await runAction(async () => {
+      await api(path, { method: "DELETE" });
+      await loadAll();
+    });
   }
 
   async function revealWarpKey(key: WarpKey) {
-    const response = await api<WarpKey>(`/warp-keys/${key.id}/reveal`);
-    if (response.value) {
-      setRevealed((current) => ({ ...current, [key.id]: response.value || "" }));
-    }
+    await runAction(async () => {
+      const response = await api<WarpKey>(`/warp-keys/${key.id}/reveal`);
+      if (response.value) {
+        setRevealed((current) => ({ ...current, [key.id]: response.value || "" }));
+      }
+    });
   }
 
   async function triggerHost(host: Host) {
-    await api<JobRun>(`/jobs/hosts/${host.id}/run`, { method: "POST" });
-    await loadAll();
-    setActive("jobs");
+    await runAction(async () => {
+      await api<JobRun>(`/jobs/hosts/${host.id}/run`, { method: "POST" });
+      await loadAll();
+      setActive("jobs");
+    });
   }
 
   async function syncSource(source: TelegramSource) {
-    await api(`/telegram-sources/${source.id}/sync`, { method: "POST" });
-    await loadAll();
+    await runAction(async () => {
+      await api(`/telegram-sources/${source.id}/sync`, { method: "POST" });
+      await loadAll();
+    });
+  }
+
+  async function runAction(action: () => Promise<void>) {
+    setError("");
+    try {
+      await action();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed");
+      if (String(err).includes("401")) logout();
+    }
   }
 
   if (!token) {
@@ -303,8 +323,14 @@ export function App() {
             revealed={revealed}
             onAdd={() => setModal("warp")}
             onReveal={revealWarpKey}
-            onInvalidate={(key) => api(`/warp-keys/${key.id}/invalidate`, { method: "POST" }).then(() => loadAll())}
-            onReactivate={(key) => api(`/warp-keys/${key.id}/reactivate`, { method: "POST" }).then(() => loadAll())}
+            onInvalidate={(key) => runAction(async () => {
+              await api(`/warp-keys/${key.id}/invalidate`, { method: "POST" });
+              await loadAll();
+            })}
+            onReactivate={(key) => runAction(async () => {
+              await api(`/warp-keys/${key.id}/reactivate`, { method: "POST" });
+              await loadAll();
+            })}
             onDelete={(key) => remove(`/warp-keys/${key.id}`)}
           />
         ) : null}

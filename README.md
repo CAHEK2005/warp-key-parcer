@@ -32,12 +32,19 @@ docker compose up --build
 
 The UI is exposed on `http://localhost:5173`, and the API is exposed on `http://localhost:8000`.
 
-Default credentials when running without your own `.env` are:
+Credentials in `.env.example` are:
 
 - username: `admin`
 - password: `change-me`
 
-For production, create `.env` and set `WARP_ADMIN_PASSWORD` before starting Compose. If the Postgres volume already exists and you change `WARP_ADMIN_PASSWORD`, restart the backend; the stored admin password hash is updated from the env value on startup.
+For production, `.env` is required. Set `WARP_ADMIN_PASSWORD` before starting Compose. Compose passes `.env` into the backend, worker, and scheduler by default. To use a different env file, run Compose with `WARP_ENV_FILE=/path/to/file.env`.
+
+If the Postgres volume already exists and you change `WARP_ADMIN_PASSWORD`, restart the backend; the stored admin password hash is updated from the env value on startup. To verify what the backend container actually received, run:
+
+```bash
+docker compose exec backend printenv WARP_ADMIN_USERNAME
+docker compose exec backend printenv WARP_ADMIN_PASSWORD
+```
 
 ## Security notes
 

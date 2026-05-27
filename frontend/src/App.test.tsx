@@ -104,4 +104,39 @@ describe("App", () => {
       expect(calls.some((call) => call.url.endsWith("/hosts") && call.init?.method === "POST")).toBe(true);
     });
   });
+
+  it("shows API errors from failed form actions", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (url.endsWith("/auth/login")) return Response.json({ access_token: "token", token_type: "bearer" });
+        if (url.endsWith("/auth/me")) return Response.json({ username: "admin" });
+        if (url.endsWith("/hosts") && init?.method === "POST") {
+          return Response.json({ detail: "host already exists" }, { status: 409 });
+        }
+        if (url.endsWith("/hosts")) return Response.json(fixtures.hosts);
+        if (url.endsWith("/ssh-keys")) return Response.json(fixtures.sshKeys);
+        if (url.endsWith("/telegram-sources")) return Response.json(fixtures.telegramSources);
+        if (url.endsWith("/warp-keys")) return Response.json(fixtures.warpKeys);
+        if (url.endsWith("/schedules")) return Response.json(fixtures.schedules);
+        if (url.endsWith("/jobs")) return Response.json(fixtures.jobs);
+        return Response.json({ status: "ok" });
+      }),
+    );
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "admin");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect((await screen.findAllByText("edge-prod")).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Hosts" }));
+    await user.click(screen.getByRole("button", { name: "Add host" }));
+    await user.type(screen.getByLabelText("Host name"), "edge-prod");
+    await user.type(screen.getByLabelText("Address"), "10.0.0.10");
+    await user.click(screen.getByRole("button", { name: "Save host" }));
+
+    expect(await screen.findByText('API 409: {"detail":"host already exists"}')).toBeInTheDocument();
+  });
 });

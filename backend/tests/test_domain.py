@@ -26,6 +26,17 @@ def test_extract_warp_keys_uses_configurable_regex_and_deduplicates() -> None:
     ]
 
 
+def test_extract_warp_keys_accepts_json_escaped_regex_boundaries() -> None:
+    text = "key: 12345678-1234-1234-1234-123456789abc"
+
+    keys = extract_warp_keys(
+        text,
+        r"\\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\\b",
+    )
+
+    assert keys == ["12345678-1234-1234-1234-123456789abc"]
+
+
 def test_fingerprint_secret_never_returns_full_secret() -> None:
     fingerprint = fingerprint_secret("12345678-1234-1234-1234-123456789abc")
 

@@ -1,8 +1,10 @@
 from fastapi.testclient import TestClient
+import sys
+from types import ModuleType
 
 from app.db import init_db, make_session_factory
 from app.main import _create_default_admin, create_app
-from app.models import AdminUser
+from app.models import AdminUser, HostSchedule, JobRun, SshKey, TelegramSource, WarpKey
 from app.security import verify_password
 
 
@@ -61,7 +63,15 @@ def test_secret_lifecycle_masks_and_reveals_ssh_key() -> None:
     assert revealed.json()["private_key"].startswith("-----BEGIN PRIVATE KEY-----")
 
 
-def test_manual_job_trigger_creates_pending_job() -> None:
+def test_manual_job_trigger_creates_pending_job(monkeypatch) -> None:
+    class SuccessfulTask:
+        @staticmethod
+        def delay(_job_run_id: int) -> None:
+            return None
+
+    fake_tasks = ModuleType("app.tasks")
+    fake_tasks.apply_warp_key = SuccessfulTask()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "app.tasks", fake_tasks)
     client = TestClient(create_app(database_url="sqlite:///:memory:", secret_key="test-secret"))
     headers = auth_headers(client)
 
@@ -86,6 +96,36 @@ def test_manual_job_trigger_creates_pending_job() -> None:
     assert response.status_code == 202
     assert response.json()["status"] == "pending"
     assert response.json()["trigger"] == "manual"
+
+
+def test_manual_job_trigger_reports_worker_enqueue_failure(monkeypatch) -> None:
+    class BrokenTask:
+        @staticmethod
+        def delay(_job_run_id: int) -> None:
+            raise RuntimeError("redis unavailable")
+
+    fake_tasks = ModuleType("app.tasks")
+    fake_tasks.apply_warp_key = BrokenTask()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "app.tasks", fake_tasks)
+    session_factory = make_session_factory("sqlite:///:memory:")
+    client = TestClient(create_app(database_url="sqlite:///:memory:", secret_key="test-secret", session_factory=session_factory))
+    headers = auth_headers(client)
+
+    ssh_key = client.post("/ssh-keys", headers=headers, json={"name": "prod-root", "private_key": "key"}).json()
+    host = client.post(
+        "/hosts",
+        headers=headers,
+        json={"name": "edge-1", "address": "192.0.2.10", "ssh_username": "root", "ssh_key_id": ssh_key["id"]},
+    ).json()
+
+    response = client.post(f"/jobs/hosts/{host['id']}/run", headers=headers)
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "worker queue unavailable"
+    with session_factory() as session:
+        run = session.query(JobRun).one()
+    assert run.status.value == "failed"
+    assert run.summary == "failed to enqueue worker task"
 
 
 def test_full_operator_crud_flow() -> None:
@@ -128,3 +168,83 @@ def test_full_operator_crud_flow() -> None:
     deleted = client.delete(f"/hosts/{host['id']}", headers=headers)
     assert deleted.status_code == 204
     assert client.get("/hosts", headers=headers).json() == []
+
+
+def test_delete_host_removes_dependent_schedules_and_jobs(monkeypatch) -> None:
+    class SuccessfulTask:
+        @staticmethod
+        def delay(_job_run_id: int) -> None:
+            return None
+
+    fake_tasks = ModuleType("app.tasks")
+    fake_tasks.apply_warp_key = SuccessfulTask()  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, "app.tasks", fake_tasks)
+    session_factory = make_session_factory("sqlite:///:memory:")
+    client = TestClient(create_app(database_url="sqlite:///:memory:", secret_key="test-secret", session_factory=session_factory))
+    headers = auth_headers(client)
+
+    ssh_key = client.post("/ssh-keys", headers=headers, json={"name": "ops", "private_key": "private"}).json()
+    host = client.post(
+        "/hosts",
+        headers=headers,
+        json={"name": "edge-prod", "address": "10.0.0.10", "ssh_username": "root", "ssh_key_id": ssh_key["id"]},
+    ).json()
+    client.post(
+        "/schedules",
+        headers=headers,
+        json={"host_id": host["id"], "kind": "interval", "interval_seconds": 3600, "timezone": "Europe/Moscow"},
+    )
+    client.post(f"/jobs/hosts/{host['id']}/run", headers=headers)
+
+    response = client.delete(f"/hosts/{host['id']}", headers=headers)
+
+    assert response.status_code == 204
+    with session_factory() as session:
+        assert session.query(HostSchedule).count() == 0
+        assert session.query(JobRun).count() == 0
+
+
+def test_delete_assigned_ssh_key_returns_conflict() -> None:
+    session_factory = make_session_factory("sqlite:///:memory:")
+    client = TestClient(create_app(database_url="sqlite:///:memory:", secret_key="test-secret", session_factory=session_factory))
+    headers = auth_headers(client)
+
+    ssh_key = client.post("/ssh-keys", headers=headers, json={"name": "ops", "private_key": "private"}).json()
+    client.post(
+        "/hosts",
+        headers=headers,
+        json={"name": "edge-prod", "address": "10.0.0.10", "ssh_username": "root", "ssh_key_id": ssh_key["id"]},
+    )
+
+    response = client.delete(f"/ssh-keys/{ssh_key['id']}", headers=headers)
+
+    assert response.status_code == 409
+    assert response.json()["detail"] == "ssh key is assigned to one or more hosts"
+    with session_factory() as session:
+        assert session.query(SshKey).count() == 1
+
+
+def test_delete_telegram_source_keeps_keys_as_manual() -> None:
+    session_factory = make_session_factory("sqlite:///:memory:")
+    client = TestClient(create_app(database_url="sqlite:///:memory:", secret_key="test-secret", session_factory=session_factory))
+    headers = auth_headers(client)
+
+    source = client.post(
+        "/telegram-sources",
+        headers=headers,
+        json={
+            "name": "owned",
+            "access_mode": "bot",
+            "channel_ref": "@owned",
+            "regex": r"\bKEY-\d+\b",
+            "secret": "bot-token",
+        },
+    ).json()
+    client.post("/warp-keys", headers=headers, json={"value": "KEY-42", "source_id": source["id"]})
+
+    response = client.delete(f"/telegram-sources/{source['id']}", headers=headers)
+
+    assert response.status_code == 204
+    with session_factory() as session:
+        assert session.query(TelegramSource).count() == 0
+        assert session.query(WarpKey).one().source_id is None

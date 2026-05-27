@@ -22,7 +22,7 @@ services:
   backend:
     build:
       context: ./backend
-    env_file: ${WARP_ENV_FILE:-.env.example}
+    env_file: ${WARP_ENV_FILE:-.env}
     ports:
       - "8000:8000"
     depends_on:
@@ -35,7 +35,7 @@ services:
     build:
       context: ./backend
     command: ["celery", "-A", "app.tasks.celery_app", "worker", "--loglevel=INFO"]
-    env_file: ${WARP_ENV_FILE:-.env.example}
+    env_file: ${WARP_ENV_FILE:-.env}
     depends_on:
       - backend
       - redis
@@ -44,7 +44,7 @@ services:
     build:
       context: ./backend
     command: ["python", "-m", "app.scheduler"]
-    env_file: ${WARP_ENV_FILE:-.env.example}
+    env_file: ${WARP_ENV_FILE:-.env}
     depends_on:
       - backend
       - redis
