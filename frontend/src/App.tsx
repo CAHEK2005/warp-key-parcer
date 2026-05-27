@@ -110,6 +110,8 @@ const navItems: Array<[View, string, typeof Activity]> = [
   ["jobs", "Jobs", TerminalSquare],
 ];
 
+const DEFAULT_WARP_KEY_REGEX = String.raw`\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\b`;
+
 export function App() {
   const [token, setToken] = useState(() => localStorage.getItem("warp.token") || "");
   const [admin, setAdmin] = useState("");
@@ -161,6 +163,16 @@ export function App() {
   useEffect(() => {
     if (token) void loadAll(token);
   }, [token]);
+
+  useEffect(() => {
+    if (!token) return;
+    const hasActiveJob = data.jobs.some((job) => job.status === "pending" || job.status === "running");
+    if (active !== "jobs" && !hasActiveJob) return;
+    const interval = window.setInterval(() => {
+      void loadAll(token);
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [active, data.jobs, token]);
 
   async function login(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -700,7 +712,7 @@ function TelegramModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (
           </select>
         </label>
         <Field label="Channel ref" name="channel_ref" placeholder="@channel" required />
-        <Field label="Regex" name="regex" defaultValue="\\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\\b" required />
+        <Field label="Regex" name="regex" defaultValue={DEFAULT_WARP_KEY_REGEX} required />
         <label className="wide">
           Secret
           <textarea name="secret" rows={5} placeholder="Bot token or user-session JSON" />

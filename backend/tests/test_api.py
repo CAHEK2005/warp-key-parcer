@@ -4,8 +4,10 @@ from types import ModuleType
 
 from app.db import init_db, make_session_factory
 from app.main import _create_default_admin, create_app
-from app.models import AdminUser, HostSchedule, JobRun, SshKey, TelegramSource, WarpKey
+from app.models import AdminUser, Host, HostSchedule, JobRun, ScheduleKind, SshKey, TelegramSource, WarpKey
 from app.security import verify_password
+from app.scheduler import sync_schedules
+from apscheduler.schedulers.blocking import BlockingScheduler
 
 
 def auth_headers(client: TestClient) -> dict[str, str]:
@@ -248,3 +250,31 @@ def test_delete_telegram_source_keeps_keys_as_manual() -> None:
     with session_factory() as session:
         assert session.query(TelegramSource).count() == 0
         assert session.query(WarpKey).one().source_id is None
+
+
+def test_scheduler_sync_adds_and_removes_database_schedules() -> None:
+    session_factory = make_session_factory("sqlite:///:memory:")
+    init_db(session_factory)
+    with session_factory() as session:
+        host = Host(name="edge-prod", address="10.0.0.10", ssh_username="root")
+        session.add(host)
+        session.commit()
+        schedule = HostSchedule(host_id=host.id, kind=ScheduleKind.interval, interval_seconds=3600, timezone="Europe/Moscow", enabled=True)
+        session.add(schedule)
+        session.commit()
+        schedule_id = schedule.id
+
+    scheduler = BlockingScheduler(timezone="Europe/Moscow")
+    sync_schedules(scheduler, session_factory)
+
+    assert scheduler.get_job(f"schedule-{schedule_id}") is not None
+
+    with session_factory() as session:
+        schedule = session.get(HostSchedule, schedule_id)
+        assert schedule is not None
+        schedule.enabled = False
+        session.commit()
+
+    sync_schedules(scheduler, session_factory)
+
+    assert scheduler.get_job(f"schedule-{schedule_id}") is None

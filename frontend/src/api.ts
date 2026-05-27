@@ -14,7 +14,17 @@ export async function apiFetch<T>(path: string, options: RequestInit & ApiOption
     },
   });
   if (!response.ok) {
-    throw new Error(`API ${response.status}: ${await response.text()}`);
+    const text = await response.text();
+    let message = text;
+    try {
+      const payload = JSON.parse(text) as { detail?: unknown };
+      if (typeof payload.detail === "string") {
+        message = payload.detail;
+      }
+    } catch {
+      message = text;
+    }
+    throw new Error(`API ${response.status}: ${message}`);
   }
   if (response.status === 204) {
     return undefined as T;

@@ -137,6 +137,28 @@ describe("App", () => {
     await user.type(screen.getByLabelText("Address"), "10.0.0.10");
     await user.click(screen.getByRole("button", { name: "Save host" }));
 
-    expect(await screen.findByText('API 409: {"detail":"host already exists"}')).toBeInTheDocument();
+    expect(await screen.findByText("API 409: host already exists")).toBeInTheDocument();
+  });
+
+  it("submits the default Telegram regex without double escaping", async () => {
+    const calls = mockApi();
+    const user = userEvent.setup();
+    render(<App />);
+
+    await user.type(screen.getByLabelText("Username"), "admin");
+    await user.type(screen.getByLabelText("Password"), "admin");
+    await user.click(screen.getByRole("button", { name: "Sign in" }));
+    expect((await screen.findAllByText("edge-prod")).length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole("button", { name: "Telegram" }));
+    await user.click(screen.getByRole("button", { name: "Add source" }));
+    await user.type(screen.getByLabelText("Name"), "new-source");
+    await user.type(screen.getByLabelText("Channel ref"), "@new-source");
+    await user.click(screen.getByRole("button", { name: "Save source" }));
+
+    const createCall = calls.find((call) => call.url.endsWith("/telegram-sources") && call.init?.method === "POST");
+    expect(JSON.parse(String(createCall?.init?.body)).regex).toBe(
+      "\\b[0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12}\\b",
+    );
   });
 });

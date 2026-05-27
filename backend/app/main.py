@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import get_settings
 from app.db import init_db, make_session_factory, session_dependency
-from app.domain.keys import DEFAULT_WARP_KEY_REGEX, fingerprint_secret
+from app.domain.keys import DEFAULT_WARP_KEY_REGEX, fingerprint_secret, normalize_regex_pattern
 from app.domain.schedules import ScheduleValidationError, validate_schedule
 from app.models import (
     AdminUser,
@@ -21,6 +21,7 @@ from app.models import (
     SshKey,
     TelegramSource,
     WarpKey,
+    KeyAttempt,
 )
 from app.schemas import (
     AdminResponse,
@@ -204,6 +205,8 @@ def create_app(
         item = session.get(SshKey, ssh_key_id)
         if item is None:
             raise HTTPException(status_code=404, detail="ssh key not found")
+        if session.scalar(select(Host).where(Host.ssh_key_id == ssh_key_id)) is not None:
+            raise HTTPException(status_code=409, detail="ssh key is assigned to one or more hosts")
         session.delete(item)
         session.commit()
 
@@ -230,6 +233,10 @@ def create_app(
         item = session.get(Host, host_id)
         if item is None:
             raise HTTPException(status_code=404, detail="host not found")
+        for run in session.scalars(select(JobRun).where(JobRun.host_id == host_id)).all():
+            session.delete(run)
+        for schedule in session.scalars(select(HostSchedule).where(HostSchedule.host_id == host_id)).all():
+            session.delete(schedule)
         session.delete(item)
         session.commit()
 
@@ -252,7 +259,7 @@ def create_app(
             name=payload.name,
             access_mode=payload.access_mode,
             channel_ref=payload.channel_ref,
-            regex=payload.regex or DEFAULT_WARP_KEY_REGEX,
+            regex=normalize_regex_pattern(payload.regex or DEFAULT_WARP_KEY_REGEX),
             encrypted_secret=encrypt_secret(active_secret_key, payload.secret),
             enabled=payload.enabled,
         )
@@ -286,6 +293,8 @@ def create_app(
         item = session.get(TelegramSource, source_id)
         if item is None:
             raise HTTPException(status_code=404, detail="telegram source not found")
+        for key in session.scalars(select(WarpKey).where(WarpKey.source_id == source_id)).all():
+            key.source_id = None
         session.delete(item)
         session.commit()
 
@@ -347,6 +356,8 @@ def create_app(
         item = session.get(WarpKey, warp_key_id)
         if item is None:
             raise HTTPException(status_code=404, detail="warp key not found")
+        for attempt in session.scalars(select(KeyAttempt).where(KeyAttempt.warp_key_id == warp_key_id)).all():
+            session.delete(attempt)
         session.delete(item)
         session.commit()
 
